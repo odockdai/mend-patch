@@ -5,7 +5,7 @@
 // In a trial the grader runs `node /bot/main.ts` with MAKEFUN_ENV_URL set; the last lines hand over to the kit's
 // runner.ts, which runs this file once per check.
 
-import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 const FORMATS = ['auto', 'unified', 'search-replace', 'v4a', 'json'];
@@ -487,7 +487,8 @@ function v4aEdits(lines: string[], strict: boolean): Edit[] {
         tree.set(p, createdText(content, true));
       });
     } else if (sec.kind === 'Delete') {
-      if (body.length > 0) throw parseError(body[0]!);
+      const stray = body.find((n) => !isBlank(lines[n]!));
+      if (stray !== undefined) throw parseError(stray);
       edits.push((tree) => {
         needSafe(p);
         needFile(tree, p);
@@ -686,6 +687,18 @@ interface Outcome {
 
 const byBytes = (a: string, b: string): number => Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
 
+/** A deleted file's directories that it leaves empty go too, so a later file can take one of their paths. */
+function pruneEmptyParents(p: string): void {
+  for (let d = dirname(p); d !== '.' && d !== '/' && d !== ''; d = dirname(d)) {
+    try {
+      if (readdirSync(d).length > 0) return;
+      rmdirSync(d);
+    } catch {
+      return;
+    }
+  }
+}
+
 function readEdits(kind: string, text: string, lines: string[], strict: boolean): Edit[] {
   if (kind === 'json') return jsonEdits(text, lines);
   if (kind === 'v4a') return v4aEdits(lines, strict);
@@ -769,7 +782,11 @@ function run(args: string[]): Outcome {
   rows.sort((a, b) => byBytes(a[0], b[0]));
 
   if (!check) {
-    for (const p of changed) if (tree.get(p) === null) rmSync(p, { force: true });
+    for (const p of changed) {
+      if (tree.get(p) !== null) continue;
+      rmSync(p, { force: true });
+      pruneEmptyParents(p);
+    }
     for (const p of [...changed].sort(byBytes)) {
       const now = tree.get(p);
       if (now === null) continue;
