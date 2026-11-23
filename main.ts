@@ -398,9 +398,15 @@ function applyHunks(doc: Doc, hunks: Hunk[], strict: boolean, path: string): voi
 function unifiedEdit(s: Section, strict: boolean): Edit {
   const oldPath = s.hasPair ? s.pairOld : (s.renameFrom ?? s.gitOld);
   const newPath = s.hasPair ? s.pairNew : (s.renameTo ?? s.gitNew);
+  // SPEC 10: every path an edit names is checked for safety before anything else about it, so a section with
+  // an unsafe path on either side fails as unsafe even when the other side is what the edit acts on.
+  const named: string[] = [];
+  if (oldPath !== null) named.push(oldPath);
+  if (newPath !== null && newPath !== oldPath) named.push(newPath);
   if (oldPath === null || s.creation) {
     const p = newPath ?? oldPath ?? '';
     return (tree) => {
+      needSafe(...named);
       needSafe(p);
       needNoFile(tree, p);
       const added = s.hunks.flatMap((h) => h.rows.filter((r) => r.op === '+'));
@@ -410,6 +416,7 @@ function unifiedEdit(s: Section, strict: boolean): Edit {
   }
   if (newPath === null || s.deletion) {
     return (tree) => {
+      needSafe(...named);
       needSafe(oldPath);
       needFile(tree, oldPath);
       tree.set(oldPath, null);
@@ -417,6 +424,7 @@ function unifiedEdit(s: Section, strict: boolean): Edit {
   }
   const moving = oldPath !== newPath;
   return (tree) => {
+    needSafe(...named);
     if (moving) needSafe(oldPath, newPath);
     else needSafe(oldPath);
     const text = needFile(tree, oldPath);
