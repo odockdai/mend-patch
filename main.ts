@@ -210,7 +210,9 @@ function needSafe(...paths: string[]): void {
 
 function needFile(tree: Tree, p: string): string {
   const text = tree.get(p);
-  if (text === null || tree.isDir(p)) throw new Fail('missing', p);
+  // The tree decides, not the disk: a directory on disk at p that an earlier edit emptied and replaced with a
+  // file is a file here (SPEC 10: a later edit sees the tree as earlier edits left it).
+  if (text === null) throw new Fail('missing', p);
   for (let i = p.lastIndexOf('/'); i > 0; i = p.lastIndexOf('/', i - 1)) {
     if (tree.get(p.slice(0, i)) !== null) throw new Fail('missing', p);
   }
