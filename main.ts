@@ -225,6 +225,11 @@ function needFile(tree: Tree, p: string): string {
 function needNoFile(tree: Tree, p: string, vacated: string | null = null): void {
   if (tree.get(p) !== null) throw new Fail('exists', p);
   if (tree.dirHoldsFile(p, vacated)) throw new Fail('exists', p);
+  // A path this same patch already created under p makes p a directory, so a file cannot take it.
+  const prefix = `${p}/`;
+  for (const other of tree.after.keys()) {
+    if (other.startsWith(prefix) && tree.after.get(other) !== null) throw new Fail('exists', p);
+  }
   for (let i = p.lastIndexOf('/'); i > 0; i = p.lastIndexOf('/', i - 1)) {
     const parent = p.slice(0, i);
     if (parent === vacated) continue;
