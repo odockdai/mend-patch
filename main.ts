@@ -176,6 +176,27 @@ class Tree {
     }
   }
 
+  /** Whether a directory on disk at this path still holds a file the tree keeps (one deleted by an edit does not). */
+  dirHoldsFile(p: string, ignore: string | null): boolean {
+    if (!this.isDir(p)) return false;
+    const walk = (dir: string): boolean => {
+      let names: string[];
+      try {
+        names = readdirSync(dir);
+      } catch {
+        return false;
+      }
+      for (const name of names) {
+        const child = `${dir}/${name}`;
+        if (this.isDir(child)) {
+          if (walk(child)) return true;
+        } else if (child !== ignore && this.get(child) !== null) return true;
+      }
+      return false;
+    };
+    return walk(p);
+  }
+
   set(p: string, text: string | null): void {
     this.after.set(p, text);
   }
@@ -197,13 +218,17 @@ function needFile(tree: Tree, p: string): string {
 }
 
 /**
- * A path is free only when no file and no directory holds it, and no file holds one of its parent paths: a
- * directory cannot be written over, and a file cannot hold a child. Such a clash fails as `exists`.
+ * A path is free only when no file holds it, no file holds one of its parent paths, and no directory that
+ * survives the patch holds it: a directory cannot be written over, and a file cannot hold a child. Such a clash
+ * fails as `exists`. `vacated` is a path the same edit removes, so a directory it empties does not count.
  */
-function needNoFile(tree: Tree, p: string): void {
-  if (tree.get(p) !== null || tree.isDir(p)) throw new Fail('exists', p);
+function needNoFile(tree: Tree, p: string, vacated: string | null = null): void {
+  if (tree.get(p) !== null) throw new Fail('exists', p);
+  if (tree.dirHoldsFile(p, vacated)) throw new Fail('exists', p);
   for (let i = p.lastIndexOf('/'); i > 0; i = p.lastIndexOf('/', i - 1)) {
-    if (tree.get(p.slice(0, i)) !== null) throw new Fail('exists', p);
+    const parent = p.slice(0, i);
+    if (parent === vacated) continue;
+    if (tree.get(parent) !== null) throw new Fail('exists', p);
   }
 }
 
@@ -395,7 +420,7 @@ function unifiedEdit(s: Section, strict: boolean): Edit {
     if (moving) needSafe(oldPath, newPath);
     else needSafe(oldPath);
     const text = needFile(tree, oldPath);
-    if (moving) needNoFile(tree, newPath);
+    if (moving) needNoFile(tree, newPath, oldPath);
     const doc = readDoc(text);
     applyHunks(doc, s.hunks, strict, oldPath);
     if (moving) moveFile(tree, oldPath, newPath, writeDoc(doc));
@@ -555,7 +580,7 @@ function v4aUpdate(p: string, moveTo: string | null, chunks: Chunk[], strict: bo
     if (moveTo !== null) needSafe(p, moveTo);
     else needSafe(p);
     const text = needFile(tree, p);
-    if (moveTo !== null) needNoFile(tree, moveTo);
+    if (moveTo !== null) needNoFile(tree, moveTo, p);
     const doc = readDoc(text);
     let cursor = 0;
     for (const c of chunks) {
