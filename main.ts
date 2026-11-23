@@ -167,6 +167,15 @@ class Tree {
     return this.after.has(p) ? this.after.get(p)! : this.original(p);
   }
 
+  /** Whether a directory sits at this path on disk (it holds no file, but nothing can be written there). */
+  isDir(p: string): boolean {
+    try {
+      return statSync(p).isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
   set(p: string, text: string | null): void {
     this.after.set(p, text);
   }
@@ -180,12 +189,22 @@ function needSafe(...paths: string[]): void {
 
 function needFile(tree: Tree, p: string): string {
   const text = tree.get(p);
-  if (text === null) throw new Fail('missing', p);
+  if (text === null || tree.isDir(p)) throw new Fail('missing', p);
+  for (let i = p.lastIndexOf('/'); i > 0; i = p.lastIndexOf('/', i - 1)) {
+    if (tree.get(p.slice(0, i)) !== null) throw new Fail('missing', p);
+  }
   return text;
 }
 
+/**
+ * A path is free only when no file and no directory holds it, and no file holds one of its parent paths: a
+ * directory cannot be written over, and a file cannot hold a child. Such a clash fails as `exists`.
+ */
 function needNoFile(tree: Tree, p: string): void {
-  if (tree.get(p) !== null) throw new Fail('exists', p);
+  if (tree.get(p) !== null || tree.isDir(p)) throw new Fail('exists', p);
+  for (let i = p.lastIndexOf('/'); i > 0; i = p.lastIndexOf('/', i - 1)) {
+    if (tree.get(p.slice(0, i)) !== null) throw new Fail('exists', p);
+  }
 }
 
 function moveFile(tree: Tree, from: string, to: string, text: string): void {
